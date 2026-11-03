@@ -1,0 +1,27 @@
+{
+  "name": "colorpack-block-editorjs",
+  "version": "1.0.0",
+  "description": "Build tooling for Colorpack Block Editor.js",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "COLORPACK CREATION CO., LTD.",
+  "license": "GPL-2.0-or-later",
+  "dependencies": {
+    "@editorjs/code": "^2.9.4",
+    "@editorjs/delimiter": "^1.4.2",
+    "@editorjs/editorjs": "^2.31.7",
+    "@editorjs/embed": "^2.8.0",
+    "@editorjs/header": "^2.8.9",
+    "@editorjs/inline-code": "^1.5.2",
+    "@editorjs/list": "^2.0.9",
+    "@editorjs/marker": "^1.4.0",
+    "@editorjs/quote": "^2.7.6",
+    "@editorjs/raw": "^2.5.1",
+    "@editorjs/table": "^2.4.6",
+    "@editorjs/underline": "^1.2.1",
+    "esbuild": "^0.28.2"
+  }
+}

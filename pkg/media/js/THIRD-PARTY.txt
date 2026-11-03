@@ -1,0 +1,3 @@
+editorjs.min.js bundles these unmodified libraries:
+- Editor.js (@editorjs/editorjs) - Apache License 2.0 - https://github.com/codex-team/editor.js
+- @editorjs/header, list, quote, table, code, delimiter, embed, marker, inline-code, underline, raw - MIT License - https://github.com/editor-js
