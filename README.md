@@ -22,6 +22,12 @@ A block editor plugin for Joomla 4.4, 5 and 6, based on Editor.js. Content stays
 cd build && npm install && sh make.sh
 ```
 
+## สนับสนุนผู้พัฒนา / Support the author
+
+ถ้าเครื่องมือนี้ช่วยคุณได้ เลี้ยงกาแฟผู้พัฒนาได้ที่นี่ · If this tool helped you, you can buy the author a coffee:
+
+<a href="https://buymeacoffee.com/cheuachatchai" >![buy_me_a_coffee](https://github.com/conseilgouz/plg_system_cgwebp_j4/assets/19435246/4fda4cb5-64f1-4717-81ae-c71a0fc26c2d)</a>
+
 ## License
 GPL-2.0-or-later. Bundled libraries: see `pkg/media/js/THIRD-PARTY.txt`.
 © 2026 COLORPACK CREATION CO., LTD.
