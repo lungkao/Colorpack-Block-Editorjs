@@ -44,7 +44,7 @@ final class ImageUploader
 
 	private function upload(): string
 	{
-		if (!Session::checkToken('get'))
+		if (!Session::checkToken('post'))
 		{
 			throw new \RuntimeException('Invalid token', 403);
 		}

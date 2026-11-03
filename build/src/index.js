@@ -11,11 +11,16 @@ import InlineCode from '@editorjs/inline-code';
 import Underline from '@editorjs/underline';
 import Raw from '@editorjs/raw';
 import { blocksToHtml, htmlToBlocks, INLINE_SANITIZE } from './convert.js';
-import { JoomlaImage, ReadMore } from './tools.js';
+import { JoomlaGallery, JoomlaImage, ReadMore, VideoEmbed } from './tools.js';
+import { cleanPasted, needsCleaning } from './paste.js';
 import { th } from './i18n.js';
 
 const live = new Set();
-const flushAll = () => Promise.all([...live].map((e) => e.flush().catch((err) => console.error('Editor.js save failed', err))));
+// Resolves to false when an upload failed while waiting, so the form is not submitted without that file.
+const flushAll = async (editors = [...live]) => {
+  const results = await Promise.all(editors.map((e) => e.prepareSubmit()));
+  return results.every(Boolean);
+};
 
 class KeepLinks {
   static get isTune() { return true; }
@@ -30,21 +35,37 @@ function guardSubmit() {
   if (window.Joomla?.submitform) {
     const original = Joomla.submitform;
     Joomla.submitform = function submitform(...args) {
-      flushAll().then(() => original.apply(this, args));
+      flushAll().then((ok) => { if (ok) original.apply(this, args); });
     };
   }
   document.addEventListener('submit', (e) => {
-    const editors = [...live].filter((x) => x.dirty && e.target.contains(x));
+    const editors = [...live].filter((x) => (x.dirty || x.pending.size) && e.target.contains(x));
     if (!editors.length) return;
     e.preventDefault();
-    Promise.all(editors.map((x) => x.flush())).then(() => e.target.requestSubmit(e.submitter));
+    flushAll(editors).then((ok) => { if (ok) e.target.requestSubmit(e.submitter); });
   }, true);
+  window.addEventListener('beforeunload', (e) => {
+    if ([...live].some((x) => x.pending.size)) e.preventDefault();
+  });
 }
 
 class JoomlaEditorEditorjs extends HTMLElement {
   async connectedCallback() {
-    if (this.editor) return;
+    if (this.editor) {
+      // Moved in the page, for example a subform row: register again.
+      live.add(this);
+      this.registerApi();
+      return;
+    }
     this.cfg = JSON.parse(this.dataset.config);
+    this.pending = new Set();
+    this.cfg.markDirty = () => this.markDirty();
+    this.cfg.track = (job) => {
+      this.pending.add(job);
+      job.then((ok) => { this.pending.delete(job); if (!ok) this.uploadFailed = true; });
+    };
+    this.history = [];
+    this.future = [];
     this.textarea = this.querySelector('textarea');
     this.dirty = false;
     this.buildUi();
@@ -52,6 +73,7 @@ class JoomlaEditorEditorjs extends HTMLElement {
     live.add(this);
     guardSubmit();
     await Promise.all([ready, this.registerApi()]);
+    await this.snapshot();
   }
 
   disconnectedCallback() {
@@ -69,7 +91,12 @@ class JoomlaEditorEditorjs extends HTMLElement {
     this.sourceBtn.textContent = 'HTML';
     this.sourceBtn.setAttribute('aria-pressed', 'false');
     this.sourceBtn.addEventListener('click', () => this.toggleSource());
-    bar.append(this.sourceBtn);
+    const th = this.cfg.lang === 'th-TH';
+    this.undoBtn = this.barButton(th ? 'เลิกทำ' : 'Undo', () => this.undo());
+    this.redoBtn = this.barButton(th ? 'ทำซ้ำ' : 'Redo', () => this.redo());
+    this.undoBtn.disabled = true;
+    this.redoBtn.disabled = true;
+    bar.append(this.undoBtn, this.redoBtn, this.sourceBtn);
     this.holder = document.createElement('div');
     this.holder.className = 'cpej-holder';
     box.append(bar, this.holder);
@@ -78,6 +105,13 @@ class JoomlaEditorEditorjs extends HTMLElement {
     this.textarea.classList.add('cpej-source');
     if (this.cfg.readonly) bar.hidden = true;
 
+    this.holder.addEventListener('paste', (e) => this.onPaste(e), true);
+    this.holder.addEventListener('keydown', (e) => {
+      if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== 'z' || !this.structural) return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.shiftKey) this.redo(); else this.undo();
+    }, true);
     const touched = () => this.markDirty();
     this.holder.addEventListener('input', touched);
     this.addEventListener('focusin', () => this.activate());
@@ -88,7 +122,90 @@ class JoomlaEditorEditorjs extends HTMLElement {
     });
   }
 
+  barButton(text, fn) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = text;
+    b.addEventListener('click', fn);
+    return b;
+  }
+
+  onPaste(e) {
+    const html = e.clipboardData?.getData('text/html');
+    if (!html || !needsCleaning(html) || e.target.closest?.('.tc-table, input, textarea, .cpej-img-caption')) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const { html: clean, droppedImages } = cleanPasted(html, this.cfg);
+    this.insertBlocks(htmlToBlocks(clean, this.cfg));
+    if (droppedImages) {
+      const th = this.cfg.lang === 'th-TH';
+      this.editor.notifier.show({
+        message: th ? `คัดลอกรูปจากเอกสารไม่ได้ ${droppedImages} รูป กรุณาอัปโหลดแยก` : `${droppedImages} image(s) could not be copied from the document. Please upload them separately.`,
+        style: 'error',
+        time: 8000,
+      });
+    }
+  }
+
+  insertBlocks(blocks) {
+    const api = this.editor.blocks;
+    let index = api.getCurrentBlockIndex();
+    const current = index >= 0 ? api.getBlockByIndex(index) : null;
+    const replace = current?.name === 'paragraph' && current.isEmpty;
+    index = index < 0 ? api.getBlocksCount() : index + (replace ? 0 : 1);
+    blocks.forEach((b, i) => api.insert(b.type, b.data, undefined, index + i, false, replace && i === 0));
+    this.markDirty();
+  }
+
+  async snapshot() {
+    if (this.source) return;
+    const { blocks } = await this.editor.save();
+    const json = JSON.stringify(blocks.map(({ type, data }) => ({ type, data })));
+    const last = this.history[this.history.length - 1];
+    if (json === last) return;
+    this.structural = !!last && JSON.parse(last).length !== blocks.length;
+    this.history.push(json);
+    if (this.history.length > 50) this.history.shift();
+    this.future = [];
+    this.updateHistoryButtons();
+  }
+
+  updateHistoryButtons() {
+    this.undoBtn.disabled = this.history.length < 2;
+    this.redoBtn.disabled = !this.future.length;
+  }
+
+  async restore(json) {
+    this.restoring = true;
+    clearTimeout(this.timer);
+    this.dirty = false;
+    const blocks = JSON.parse(json);
+    if (blocks.length) await this.editor.render({ blocks }); else await this.editor.clear();
+    this.textarea.value = blocksToHtml(blocks, this.cfg);
+    this.dirty = false;
+    clearTimeout(this.timer);
+    this.restoring = false;
+    this.updateHistoryButtons();
+  }
+
+  async undo() {
+    if (this.source) return;
+    await this.flush();
+    if (this.history.length < 2) return;
+    this.future.push(this.history.pop());
+    this.structural = true;
+    await this.restore(this.history[this.history.length - 1]);
+  }
+
+  async redo() {
+    if (this.source || !this.future.length) return;
+    const json = this.future.pop();
+    this.history.push(json);
+    await this.restore(json);
+  }
+
   tools() {
+    const th = this.cfg.lang === 'th-TH';
     const inline = ['link', 'bold', 'italic', 'underline', 'marker', 'inlineCode'];
     return {
       keepLinks: KeepLinks,
@@ -96,10 +213,12 @@ class JoomlaEditorEditorjs extends HTMLElement {
       header: { class: Header, inlineToolbar: inline, config: { levels: [1, 2, 3, 4, 5, 6], defaultLevel: 2 } },
       list: { class: List, inlineToolbar: inline, config: { defaultStyle: 'unordered' } },
       image: { class: JoomlaImage, config: this.cfg, tunes: [] },
-      quote: { class: Quote, inlineToolbar: inline },
+      gallery: { class: JoomlaGallery, config: this.cfg, tunes: [] },
+      video: { class: VideoEmbed, config: this.cfg, tunes: [] },
+      quote: { class: Quote, inlineToolbar: inline, config: th ? { quotePlaceholder: 'พิมพ์คำพูด', captionPlaceholder: 'ผู้กล่าว' } : {} },
       table: { class: Table, inlineToolbar: inline, config: { rows: 2, cols: 3 } },
-      embed: { class: Embed, config: { services: { youtube: true, vimeo: true, facebook: true, instagram: true, twitter: true, codepen: true } } },
-      code: { class: Code },
+      embed: { class: Embed, config: { services: { facebook: true, instagram: true, twitter: true, codepen: true } } },
+      code: { class: Code, config: th ? { placeholder: 'พิมพ์โค้ด' } : {} },
       delimiter: { class: Delimiter },
       raw: { class: Raw, config: { placeholder: 'HTML', defaultHeight: 90 } },
       readmore: { class: ReadMore, config: this.cfg },
@@ -125,6 +244,7 @@ class JoomlaEditorEditorjs extends HTMLElement {
   }
 
   markDirty() {
+    if (this.restoring) return;
     this.dirty = true;
     clearTimeout(this.timer);
     this.timer = setTimeout(() => this.flush().catch(console.error), 250);
@@ -136,6 +256,32 @@ class JoomlaEditorEditorjs extends HTMLElement {
     clearTimeout(this.timer);
     const { blocks } = await this.editor.save();
     this.textarea.value = blocksToHtml(blocks, this.cfg);
+    await this.snapshot();
+  }
+
+  // Waits for running uploads, then writes the content. False means do not submit.
+  async prepareSubmit() {
+    if (this.pending.size) {
+      this.uploadFailed = false;
+      this.editor.notifier.show({ message: this.cfg.lang === 'th-TH' ? 'กำลังอัปโหลดรูป จะบันทึกให้เมื่ออัปโหลดเสร็จ' : 'Uploading images. The article will save when they finish.', time: 4000 });
+      while (this.pending.size) {
+        // eslint-disable-next-line no-await-in-loop
+        await Promise.all([...this.pending]);
+      }
+      // Lets the block that finished uploading record its new address.
+      await new Promise((r) => { setTimeout(r); });
+      if (this.uploadFailed) {
+        this.editor.notifier.show({ message: this.cfg.lang === 'th-TH' ? 'มีรูปอัปโหลดไม่สำเร็จ ยังไม่ได้บันทึก กรุณาตรวจแล้วกดบันทึกอีกครั้ง' : 'An image failed to upload, so nothing was saved. Check it and save again.', style: 'error', time: 8000 });
+        return false;
+      }
+    }
+    try {
+      await this.flush();
+    } catch (err) {
+      console.error('Editor.js save failed', err);
+      return false;
+    }
+    return true;
   }
 
   async toggleSource() {
@@ -187,10 +333,7 @@ class JoomlaEditorEditorjs extends HTMLElement {
       s.addRange(this.range);
       document.execCommand('insertHTML', false, blocks[0].data.text);
     } else {
-      const api = this.editor.blocks;
-      let index = api.getCurrentBlockIndex();
-      index = index < 0 ? api.getBlocksCount() : index + 1;
-      blocks.forEach((b, i) => api.insert(b.type, b.data, undefined, index + i, false));
+      this.insertBlocks(blocks);
     }
     this.markDirty();
   }

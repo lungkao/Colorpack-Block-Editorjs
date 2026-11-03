@@ -8,6 +8,8 @@ namespace Colorpack\Plugin\Editors\Editorjs\Helper;
 
 \defined('_JEXEC') or die;
 
+use Joomla\CMS\Component\ComponentHelper;
+use Joomla\CMS\Plugin\PluginHelper;
 use Joomla\CMS\Session\Session;
 use Joomla\CMS\Uri\Uri;
 
@@ -40,7 +42,14 @@ final class EditorRenderer
 			'readonly'   => $readonly,
 			'rootUrl'    => rtrim(Uri::root(), '/') . '/',
 			'canUpload'  => $user && $user->authorise('core.create', 'com_media'),
-			'uploadUrl'  => Uri::base(true) . '/index.php?option=com_ajax&plugin=editorjs&group=editors&format=raw&' . Session::getFormToken() . '=1',
+			'canBrowse'  => $user && ($user->authorise('core.manage', 'com_media') || $user->authorise('core.create', 'com_media')),
+			'token'      => Session::getFormToken(),
+			'uploadUrl'  => Uri::base(true) . '/index.php?option=com_ajax&plugin=editorjs&group=editors&format=raw',
+			'mediaUrl'   => Uri::base(true) . '/index.php?option=com_media&view=media&tmpl=component',
+			'mediaApi'   => Uri::base(true) . '/index.php?option=com_media&format=json&task=api.files&url=1&mediatypes=0,1,2,3',
+			'maxWidth'   => (int) $params->get('max_width', 1920),
+			'iframeFiltered' => stripos(ComponentHelper::filterText('<iframe src="https://example.com/"></iframe>'), '<iframe') === false,
+			'embedPlugin'    => PluginHelper::isEnabled('content', 'colorpackembed'),
 			'tableClass' => trim((string) $params->get('table_class', 'uk-table uk-table-divider table')),
 		];
 

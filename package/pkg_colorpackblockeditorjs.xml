@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<extension type="package" method="upgrade">
+	<name>Colorpack Block Editor.js</name>
+	<packagename>colorpackblockeditorjs</packagename>
+	<version>1.1.0</version>
+	<creationDate>2026-11</creationDate>
+	<author>COLORPACK CREATION CO., LTD.</author>
+	<authorUrl>https://colorpack.co.th</authorUrl>
+	<packager>COLORPACK CREATION CO., LTD.</packager>
+	<packagerurl>https://colorpack.co.th</packagerurl>
+	<copyright>(C) 2026 COLORPACK CREATION CO., LTD.</copyright>
+	<license>GNU General Public License version 2 or later</license>
+	<description>Colorpack Block Editor.js</description>
+	<files folder="packages">
+		<file type="plugin" id="editorjs" group="editors">plg_editors_editorjs.zip</file>
+		<file type="plugin" id="colorpackembed" group="content">plg_content_colorpackembed.zip</file>
+	</files>
+</extension>

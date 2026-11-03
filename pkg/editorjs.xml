@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <extension type="plugin" group="editors" method="upgrade">
 	<name>plg_editors_editorjs</name>
-	<version>1.0.0</version>
+	<version>1.1.0</version>
 	<creationDate>2026-11</creationDate>
 	<author>COLORPACK CREATION CO., LTD.</author>
 	<authorUrl>https://colorpack.co.th</authorUrl>
@@ -23,6 +23,7 @@
 		<fields name="params">
 			<fieldset name="basic">
 				<field name="upload_folder" type="text" default="images/editorjs" label="PLG_EDITORS_EDITORJS_UPLOAD_FOLDER_LABEL" description="PLG_EDITORS_EDITORJS_UPLOAD_FOLDER_DESC"/>
+				<field name="max_width" type="number" default="1920" min="0" label="PLG_EDITORS_EDITORJS_MAX_WIDTH_LABEL" description="PLG_EDITORS_EDITORJS_MAX_WIDTH_DESC"/>
 				<field name="table_class" type="text" default="uk-table uk-table-divider table" label="PLG_EDITORS_EDITORJS_TABLE_CLASS_LABEL" description="PLG_EDITORS_EDITORJS_TABLE_CLASS_DESC"/>
 			</fieldset>
 		</fields>

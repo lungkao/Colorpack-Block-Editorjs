@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<extension type="plugin" group="content" method="upgrade">
+	<name>plg_content_colorpackembed</name>
+	<version>1.1.0</version>
+	<creationDate>2026-11</creationDate>
+	<author>COLORPACK CREATION CO., LTD.</author>
+	<authorUrl>https://colorpack.co.th</authorUrl>
+	<copyright>(C) 2026 COLORPACK CREATION CO., LTD.</copyright>
+	<license>GNU General Public License version 2 or later</license>
+	<description>PLG_CONTENT_COLORPACKEMBED_XML_DESCRIPTION</description>
+	<namespace path="src">Colorpack\Plugin\Content\Colorpackembed</namespace>
+	<scriptfile>script.php</scriptfile>
+	<files>
+		<folder plugin="colorpackembed">services</folder>
+		<folder>src</folder>
+		<folder>language</folder>
+	</files>
+</extension>

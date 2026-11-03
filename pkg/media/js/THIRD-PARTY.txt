@@ -1,3 +1,4 @@
 editorjs.min.js bundles these unmodified libraries:
+- Cropper.js - MIT License - https://github.com/fengyuanchen/cropperjs
 - Editor.js (@editorjs/editorjs) - Apache License 2.0 - https://github.com/codex-team/editor.js
 - @editorjs/header, list, quote, table, code, delimiter, embed, marker, inline-code, underline, raw - MIT License - https://github.com/editor-js

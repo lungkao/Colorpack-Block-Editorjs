@@ -11,6 +11,8 @@ export const INLINE_SANITIZE = {
   mark: { class: 'cdx-marker' }, code: { class: 'inline-code' }, u: { class: 'cdx-underline' },
 };
 
+import { parseVideoUrl } from './video.js';
+
 const attrNames = (el) => [...el.attributes].map((a) => a.name);
 const hasAttrs = (el) => el.attributes.length > 0;
 
@@ -50,11 +52,14 @@ const para = (root) => ({ type: 'paragraph', data: { text: toEditorInline(root) 
 
 function imageData(img, figure, caption) {
   const attrs = {};
-  for (const a of img.attributes) if (a.name !== 'src' && a.name !== 'alt') attrs[a.name] = a.value;
+  const laidOut = figure?.hasAttribute('data-width') || figure?.hasAttribute('data-align');
+  for (const a of img.attributes) if (a.name !== 'src' && a.name !== 'alt' && !(laidOut && a.name === 'style')) attrs[a.name] = a.value;
   const data = {
     url: img.getAttribute('src') || '', alt: img.getAttribute('alt') ?? '', caption: caption ?? '', attrs,
   };
   if (figure?.getAttribute('class')) data.figureClass = figure.getAttribute('class');
+  if (figure?.dataset.width) data.width = figure.dataset.width;
+  if (figure?.dataset.align) data.align = figure.dataset.align;
   return { type: 'image', data };
 }
 
@@ -106,7 +111,8 @@ function tableBlock(el, opts) {
     if (hasAttrs(tr)) return null;
     const row = [];
     for (const c of tr.children) {
-      if (hasAttrs(c) || !inlineOk(c) || (c.tagName === 'TH') !== head.includes(tr)) return null;
+      const isHeadCell = c.tagName === 'TH' && c.attributes.length === 1 && c.getAttribute('scope') === 'col';
+      if ((hasAttrs(c) && !isHeadCell) || !inlineOk(c) || (c.tagName === 'TH') !== head.includes(tr)) return null;
       row.push(toEditorInline(c));
     }
     content.push(row);
@@ -118,6 +124,12 @@ function tableBlock(el, opts) {
 function figureBlock(el) {
   if (el.classList.contains('editorjs-embed')) {
     const f = el.querySelector(':scope > iframe');
+    const capEl = el.querySelector(':scope > figcaption');
+    if (['youtube', 'vimeo'].includes(el.dataset.service)) {
+      // The iframe may be gone after a Text Filter; the source address is enough to rebuild it.
+      const parsed = parseVideoUrl(el.dataset.source || f?.getAttribute('src'));
+      if (parsed) return { type: 'video', data: { ...parsed, caption: capEl?.innerHTML ?? '' } };
+    }
     if (!f || !el.dataset.service) return null;
     return {
       type: 'embed',
@@ -130,7 +142,9 @@ function figureBlock(el) {
   }
   const kids = [...el.children];
   const img = kids[0];
-  if (img?.tagName !== 'IMG' || kids.length > 2 || attrNames(el).some((n) => n !== 'class')) return null;
+  const laidOut = el.hasAttribute('data-width') || el.hasAttribute('data-align');
+  const allowed = laidOut ? ['class', 'style', 'data-width', 'data-align'] : ['class'];
+  if (img?.tagName !== 'IMG' || kids.length > 2 || attrNames(el).some((n) => !allowed.includes(n))) return null;
   const cap = kids[1];
   if (cap && (cap.tagName !== 'FIGCAPTION' || hasAttrs(cap) || !inlineOk(cap))) return null;
   if ([...el.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim())) return null;
@@ -154,6 +168,17 @@ function quoteBlock(el) {
   return { type: 'quote', data: { text: toEditorInline(holder), caption, alignment: 'left' } };
 }
 
+function galleryBlock(el) {
+  if (el.getAttribute('class') !== 'editorjs-gallery') return null;
+  const images = [];
+  for (const a of el.children) {
+    const img = a.firstElementChild;
+    if (a.tagName !== 'A' || img?.tagName !== 'IMG') return null;
+    images.push({ url: img.getAttribute('src') || '', alt: img.getAttribute('alt') ?? '' });
+  }
+  return { type: 'gallery', data: { images, columns: Number(el.dataset.columns) || 3 } };
+}
+
 function elementBlock(el, opts) {
   const tag = el.tagName;
   if (/^H[1-6]$/.test(tag)) {
@@ -173,6 +198,7 @@ function elementBlock(el, opts) {
     case 'UL': case 'OL': return listBlock(el);
     case 'BLOCKQUOTE': return quoteBlock(el);
     case 'TABLE': return tableBlock(el, opts);
+    case 'DIV': return galleryBlock(el);
     case 'PRE': {
       const c = el.firstElementChild;
       if (hasAttrs(el) || el.children.length !== 1 || c.tagName !== 'CODE' || hasAttrs(c) || el.textContent !== c.textContent) return null;
@@ -219,20 +245,52 @@ function listHtml(data, items) {
   return `<${tag}${cls}${start}>${body}</${tag}>`;
 }
 
+function imageLayout(d) {
+  const w = /^(25|33|50|75)$/.test(d.width ?? '') ? d.width : null;
+  const a = ['left', 'center', 'right'].includes(d.align) ? d.align : null;
+  if (!w && !a) return '';
+  const width = w ?? (a === 'center' ? 100 : 50);
+  const css = { left: 'float:left;margin:0 1rem 1rem 0', right: 'float:right;margin:0 0 1rem 1rem', center: 'margin:0 auto 1rem' }[a] ?? 'margin:0 0 1rem';
+  return `${w ? ` data-width="${w}"` : ''}${a ? ` data-align="${a}"` : ''} style="width:${width}%;max-width:100%;${css}"`;
+}
+
+function galleryHtml(d) {
+  const images = d.images ?? [];
+  if (!images.length) return '';
+  const cols = [2, 3, 4].includes(Number(d.columns)) ? Number(d.columns) : 3;
+  const min = { 2: 320, 3: 220, 4: 160 }[cols];
+  const items = images.map((im) => `<a href="${esc(im.url)}"><img src="${esc(im.url)}" alt="${esc(im.alt)}" loading="lazy" style="display:block;width:100%;aspect-ratio:4/3;object-fit:cover"></a>`).join('');
+  return `<div class="editorjs-gallery" data-columns="${cols}" uk-lightbox="" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,${min}px),1fr));gap:.75rem;margin:0 0 1rem">${items}</div>`;
+}
+
+function videoHtml(d) {
+  if (!d.embed) return '';
+  const w = Number(d.width) || 560;
+  const h = Number(d.height) || 315;
+  const cap = fromEditorInline(d.caption);
+  const name = d.service === 'vimeo' ? 'Vimeo' : 'YouTube';
+  const title = esc(cap.replace(/<[^>]+>/g, '') || `${name} video`);
+  const box = d.portrait ? ' style="max-width:315px;margin:0 auto 1rem"' : ' style="margin:0 0 1rem"';
+  return `<figure class="editorjs-embed" data-service="${esc(d.service)}" data-source="${esc(d.source)}"${box}>`
+    + `<iframe src="${esc(d.embed)}" title="${title}" width="${w}" height="${h}" style="display:block;width:100%;height:auto;aspect-ratio:${w}/${h};border:0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen="" loading="lazy"></iframe>${cap ? `<figcaption>${cap}</figcaption>` : ''}</figure>`;
+}
+
 function imageHtml(d) {
   if (!d.url) return '';
   const extra = Object.entries(d.attrs ?? {}).map(([k, v]) => ` ${esc(k)}="${esc(v)}"`).join('');
   const img = `<img src="${esc(d.url)}" alt="${esc(d.alt)}"${extra}>`;
   const cap = fromEditorInline(d.caption);
-  if (!cap && !d.figureClass) return img;
+  const layout = imageLayout(d);
+  if (!cap && !d.figureClass && !layout) return img;
   const cls = d.figureClass ? ` class="${esc(d.figureClass)}"` : '';
-  return `<figure${cls}>${img}${cap ? `<figcaption>${cap}</figcaption>` : ''}</figure>`;
+  const body = layout ? img.replace(/>$/, ' style="width:100%;height:auto">') : img;
+  return `<figure${cls}${layout}>${body}${cap ? `<figcaption>${cap}</figcaption>` : ''}</figure>`;
 }
 
 function tableHtml(d, opts) {
   const rows = d.content ?? [];
   const cell = (tag, c) => `<${tag}>${fromEditorInline(c)}</${tag}>`;
-  const head = d.withHeadings && rows.length ? `<thead><tr>${rows[0].map((c) => cell('th', c)).join('')}</tr></thead>` : '';
+  const head = d.withHeadings && rows.length ? `<thead><tr>${rows[0].map((c) => `<th scope="col">${fromEditorInline(c)}</th>`).join('')}</tr></thead>` : '';
   const bodyRows = (d.withHeadings ? rows.slice(1) : rows).map((r) => `<tr>${r.map((c) => cell('td', c)).join('')}</tr>`).join('');
   const cls = opts.tableClass ? ` class="${esc(opts.tableClass)}"` : '';
   return `<table${cls}>${head}${bodyRows ? `<tbody>${bodyRows}</tbody>` : ''}</table>`;
@@ -243,7 +301,7 @@ function embedHtml(d) {
   const h = Number(d.height) || 320;
   const cap = d.caption ? `<figcaption>${fromEditorInline(d.caption)}</figcaption>` : '';
   return `<figure class="editorjs-embed" data-service="${esc(d.service)}" data-source="${esc(d.source)}">`
-    + `<iframe src="${esc(d.embed)}" width="${w}" height="${h}" style="width:100%;height:auto;aspect-ratio:${w}/${h};border:0" allowfullscreen loading="lazy"></iframe>${cap}</figure>`;
+    + `<iframe src="${esc(d.embed)}" width="${w}" height="${h}" title="${esc(d.service)}" style="width:100%;height:auto;aspect-ratio:${w}/${h};border:0" allowfullscreen="" loading="lazy"></iframe>${cap}</figure>`;
 }
 
 export function blocksToHtml(blocks, opts = {}) {
@@ -263,6 +321,8 @@ export function blocksToHtml(blocks, opts = {}) {
       case 'readmore': return '<hr id="system-readmore">';
       case 'image': return imageHtml(d);
       case 'embed': return embedHtml(d);
+      case 'video': return videoHtml(d);
+      case 'gallery': return galleryHtml(d);
       case 'raw': return d.html ?? '';
       default: return '';
     }
